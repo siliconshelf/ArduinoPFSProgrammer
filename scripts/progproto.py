@@ -57,7 +57,7 @@ class Programmer:
 	def start_mode(self, mode):
 		self._write_packet(RequestId.MODE, 'B', mode.value)
 
-		devId, = self._read_unpacked(ReplyId.DEVICE_ID, 'H')
+		devId, = self._read_struct(ReplyId.DEVICE_ID, 'H')
 		if mode != ProtoModes.OFF and devId != 0xAA1:
 			self._mode = ProtoModes.OFF
 			raise Exception("Unsupported device ID: %06X" % devId)
@@ -87,16 +87,10 @@ class Programmer:
 
 		return words
 
-	def start_write(self, timeout=100):
-		rx = self._dev.controlRead(LIBUSB_REQUEST_TYPE_VENDOR, ProtoCommands.MODE, ProtoModes.WRITE, 0, 2, timeout)
-		devId, = struct.unpack("<H", rx)
+	def start_write(self):
+		devId = self.start_mode(ProtoModes.WRITE)
 
-		if devId != 0xAA1:
-			raise Exception("Unsupported device ID: %06X" % devId)
-
-		self._mode = ProtoModes.WRITE
-
-	def write(self, offset, words, timeout=500):
+	def write(self, offset, words):
 		if self._mode != ProtoModes.WRITE:
 			raise Exception("Not in write mode")
 
@@ -107,24 +101,22 @@ class Programmer:
 		while len(bytes) > 0:
 			iterlen = min(len(bytes), Programmer.MAX_WORDS * 2)
 			iterdata = bytes[0:iterlen]
-			written = self._dev.controlWrite(LIBUSB_REQUEST_TYPE_VENDOR, ProtoCommands.WRITE, 0, offset, iterdata, timeout)
-
-			if written != iterlen:
-				raise Exception("Expected to write %d bytes, wrote %d" % (iterlen, written))
+			self._write_packet(RequestId.WRITE, 'H', offset, payload=iterdata)
+			self._read_struct(ReplyId.OK)
 
 			bytes = bytes[iterlen:]
 
 	def erase(self):
 		self.start_mode(ProtoModes.ERASE)
 		self._write_packet(RequestId.ERASE)
-		self._read_unpacked(ReplyId.OK)
+		self._read_struct(ReplyId.OK)
 
 	def finish(self):
 		if self._mode != ProtoModes.OFF:
 			self.start_mode(ProtoModes.OFF)
 
-	def _write_packet(self, packet_type, packet_format='', *packet_data):
-		packet = struct.pack('<B' + packet_format, packet_type.value, *packet_data)
+	def _write_packet(self, packet_type, packet_format='', *packet_data, payload=b''):
+		packet = struct.pack('<B' + packet_format, packet_type.value, *packet_data) + payload
 		print('> %s' % packet.hex())
 		packet = cobs.encode(packet) + b'\x00'
 		self._serial.write(packet)
@@ -152,7 +144,7 @@ class Programmer:
 
 		return reply[1:]
 
-	def _read_unpacked(self, expectedType, expectedFormat=''):
+	def _read_struct(self, expectedType, expectedFormat=''):
 		reply = self._read_expected(expectedType)
 
 		try:

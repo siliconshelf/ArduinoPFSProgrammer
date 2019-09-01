@@ -66,7 +66,7 @@ void smpsOff() {
 #define VDDSMPS_EN 2
 #define PROG_DATA 5
 #define PROG_CLOCK 6
-#define PROG_VOLTS SMPS_ADC_VAL(6)
+#define PROG_VOLTS SMPS_ADC_VAL(6.5)
 #define ERASE_VOLTS SMPS_ADC_VAL(8)
 
 void padauk_init() {
@@ -226,7 +226,7 @@ struct request_read {
 
 struct request_write {
   uint16_t address;
-  uint16_t data[64];
+  uint16_t data[0];
 };
 
 struct request {
@@ -247,6 +247,7 @@ enum {
   REPLY_INVALID_REQUESTED_MODE,
   REPLY_INVALID_CURRENT_MODE,
   REPLY_CHUNK_TOO_LARGE,
+  REPLY_UNALIGNED_WRITE,
 };
 
 struct reply_device_id {
@@ -275,6 +276,8 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
 
   const struct request * request = (const struct request *) packet;
   struct reply reply;
+
+  int16_t payloadLen;
 
   switch (request->type) {
     case REQUEST_MODE:
@@ -346,6 +349,33 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
       packetSerial.send((uint8_t *) &reply, 1 + request->read.len * sizeof(uint16_t));
       return;
 
+    case REQUEST_WRITE:
+      // Subtract request id and offset
+      payloadLen = len - sizeof(uint8_t) - sizeof(uint16_t);
+      if (payloadLen < 0) {
+        reply.type = REPLY_INVALID_REQUEST_LENGTH;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+      }
+
+      // Check alignment - writes happen in chunks of four words
+      if (payloadLen % (4 * sizeof(uint16_t)) != 0) {
+        reply.type = REPLY_UNALIGNED_WRITE;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+      }
+
+      digitalWrite(VDD33_EN, HIGH);
+      digitalWrite(VDDSMPS_EN, HIGH);
+
+      for (uint8_t i = 0; i < payloadLen / sizeof(uint16_t); i += 4) {
+        padauk_flash_write(request->write.address + i, request->write.data + i);
+      }
+
+      reply.type = REPLY_OK;
+      packetSerial.send((uint8_t *) &reply, 1);
+      return;
+
     case REQUEST_ERASE:
       if (len != 1) {
         reply.type = REPLY_INVALID_REQUEST_LENGTH;
@@ -360,6 +390,8 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
       }
 
       padauk_erase();
+      currentMode = MODE_OFF;
+
       reply.type = REPLY_OK;
       packetSerial.send((uint8_t *) &reply, 1);
       return;
@@ -377,6 +409,10 @@ void setup() {
 
 void loop() {
   packetSerial.update();
+  if (packetSerial.overflow()) {
+    uint8_t reply = REPLY_INVALID_REQUEST_LENGTH;
+    packetSerial.send(&reply, 1);
+  }
 }
 
 ISR(ADC_vect) {

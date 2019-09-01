@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 
 from progproto import *
 from array import array
@@ -5,7 +6,8 @@ import time
 
 data = array('H', [0] * 8)
 
-with Programmer() as p:
+
+with Programmer('COM3') as p:
 	try:
 		p.start_write()
 		for i in range(0, 48, 8):
