@@ -67,7 +67,7 @@ void smpsOff() {
 #define PROG_DATA 5
 #define PROG_CLOCK 6
 #define PROG_VOLTS SMPS_ADC_VAL(6)
-#define ERASE_VOLTS SMPS_ADC_VAL(6.5)
+#define ERASE_VOLTS SMPS_ADC_VAL(8)
 
 void padauk_init() {
   pinMode(VDD33_EN, OUTPUT);
@@ -344,6 +344,24 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
         reply.read.data[i] = padauk_flash_read(request->read.address + i);
       }
       packetSerial.send((uint8_t *) &reply, 1 + request->read.len * sizeof(uint16_t));
+      return;
+
+    case REQUEST_ERASE:
+      if (len != 1) {
+        reply.type = REPLY_INVALID_REQUEST_LENGTH;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+      }
+
+      if (currentMode != MODE_ERASE) {
+        reply.type = REPLY_INVALID_CURRENT_MODE;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+      }
+
+      padauk_erase();
+      reply.type = REPLY_OK;
+      packetSerial.send((uint8_t *) &reply, 1);
       return;
   }
 

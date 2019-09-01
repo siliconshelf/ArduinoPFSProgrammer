@@ -1,7 +1,7 @@
 
 from progproto import *
 
-with Programmer() as p:
+with Programmer('COM3') as p:
 	try:
 		p.erase()
 	finally:

@@ -64,7 +64,7 @@ class Programmer:
 
 		self._mode = mode
 
-	def start_read(self, timeout=100):
+	def start_read(self):
 		devId = self.start_mode(ProtoModes.READ)
 
 	def read(self, offset, length):
@@ -114,24 +114,16 @@ class Programmer:
 
 			bytes = bytes[iterlen:]
 
-	def erase(self, timeout=500):
-		rx = self._dev.controlRead(LIBUSB_REQUEST_TYPE_VENDOR, ProtoCommands.MODE, ProtoModes.ERASE, 0, 2, timeout)
-		devId, = struct.unpack("<H", rx)
-
-		if devId != 0xAA1:
-			raise Exception("Unsupported device ID: %06X" % devId)
-
-		rx = self._dev.controlRead(LIBUSB_REQUEST_TYPE_VENDOR, ProtoCommands.ERASE, 0, 0, 2, timeout)
-		devIdErase, = struct.unpack("<H", rx)
-
-		if devIdErase != devId:
-			raise Exception("Erase failed (expected reply %06X, got %06X)" % (devId, devIdErase))
+	def erase(self):
+		self.start_mode(ProtoModes.ERASE)
+		self._write_packet(RequestId.ERASE)
+		self._read_unpacked(ReplyId.OK)
 
 	def finish(self):
 		if self._mode != ProtoModes.OFF:
 			self.start_mode(ProtoModes.OFF)
 
-	def _write_packet(self, packet_type, packet_format, *packet_data):
+	def _write_packet(self, packet_type, packet_format='', *packet_data):
 		packet = struct.pack('<B' + packet_format, packet_type.value, *packet_data)
 		print('> %s' % packet.hex())
 		packet = cobs.encode(packet) + b'\x00'
@@ -160,7 +152,7 @@ class Programmer:
 
 		return reply[1:]
 
-	def _read_unpacked(self, expectedType, expectedFormat):
+	def _read_unpacked(self, expectedType, expectedFormat=''):
 		reply = self._read_expected(expectedType)
 
 		try:
