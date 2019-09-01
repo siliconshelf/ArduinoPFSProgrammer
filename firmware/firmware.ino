@@ -333,7 +333,7 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
         return;
       }
 
-      if (request->read.len > sizeof(reply.read.data)) {
+      if (request->read.len > sizeof(reply.read.data) / sizeof(uint16_t)) {
         reply.type = REPLY_CHUNK_TOO_LARGE;
         packetSerial.send((uint8_t *) &reply, 1);
         return;
