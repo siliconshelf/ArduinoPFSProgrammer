@@ -21,7 +21,7 @@ volatile boolean smpsReachedHigher;
 #define SMPS_DIV_R2 100.0
 #define SMPS_ADC_VAL(v) ((uint8_t) ((255 * v * SMPS_DIV_R2) / (1.1 * (SMPS_DIV_R2 + SMPS_DIV_R1))))
 
-#define BASEDELAY 1
+#define BASEDELAY 3
 
 void smpsInit() {
   // - Set channel to ADC0 (MUX[3:0] = 0000)
@@ -247,7 +247,6 @@ enum {
   REPLY_INVALID_REQUESTED_MODE,
   REPLY_INVALID_CURRENT_MODE,
   REPLY_CHUNK_TOO_LARGE,
-  REPLY_UNALIGNED_WRITE,
 };
 
 struct reply_device_id {
@@ -276,8 +275,6 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
 
   const struct request * request = (const struct request *) packet;
   struct reply reply;
-
-  int16_t payloadLen;
 
   switch (request->type) {
     case REQUEST_MODE:
@@ -317,6 +314,8 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
   
       if (reply.device_id.device_id != 0x000) {
         currentMode = request->mode.mode;
+      } else {
+        padauk_finish();
       }
   
       reply.type = REPLY_DEVICE_ID;
@@ -349,18 +348,11 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
       packetSerial.send((uint8_t *) &reply, 1 + request->read.len * sizeof(uint16_t));
       return;
 
-    case REQUEST_WRITE:
+    case REQUEST_WRITE: {
       // Subtract request id and offset
-      payloadLen = len - sizeof(uint8_t) - sizeof(uint16_t);
-      if (payloadLen < 0) {
+      int16_t payloadLen = len - sizeof(uint8_t) - sizeof(uint16_t);
+      if (payloadLen < 0 || (payloadLen % sizeof(uint16_t)) != 0) {
         reply.type = REPLY_INVALID_REQUEST_LENGTH;
-        packetSerial.send((uint8_t *) &reply, 1);
-        return;
-      }
-
-      // Check alignment - writes happen in chunks of four words
-      if (payloadLen % (4 * sizeof(uint16_t)) != 0) {
-        reply.type = REPLY_UNALIGNED_WRITE;
         packetSerial.send((uint8_t *) &reply, 1);
         return;
       }
@@ -368,13 +360,24 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
       digitalWrite(VDD33_EN, HIGH);
       digitalWrite(VDDSMPS_EN, HIGH);
 
-      for (uint8_t i = 0; i < payloadLen / sizeof(uint16_t); i += 4) {
-        padauk_flash_write(request->write.address + i, request->write.data + i);
+      uint8_t words = payloadLen / sizeof(uint16_t);
+      uint8_t pos = 0;
+      while (words >= 4) {
+        padauk_flash_write(request->write.address + pos, request->write.data + pos);
+        pos += 4;
+        words -= 4;
+      }
+
+      if (words != 0) {
+        uint16_t tmp[4] = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
+        memcpy(tmp, request->write.data + pos, words * sizeof(uint16_t));
+        padauk_flash_write(request->write.address + pos, tmp);
       }
 
       reply.type = REPLY_OK;
       packetSerial.send((uint8_t *) &reply, 1);
       return;
+    }
 
     case REQUEST_ERASE:
       if (len != 1) {

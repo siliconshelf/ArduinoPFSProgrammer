@@ -94,9 +94,6 @@ class Programmer:
 		if self._mode != ProtoModes.WRITE:
 			raise Exception("Not in write mode")
 
-		if len(words) % 4 != 0:
-			raise Exception("Words must be programmed in chunks of 4")
-
 		bytes = words.tobytes()
 		while len(bytes) > 0:
 			iterlen = min(len(bytes), Programmer.MAX_WORDS * 2)
@@ -117,7 +114,7 @@ class Programmer:
 
 	def _write_packet(self, packet_type, packet_format='', *packet_data, payload=b''):
 		packet = struct.pack('<B' + packet_format, packet_type.value, *packet_data) + payload
-		print('> %s' % packet.hex())
+		#print('> %s' % packet.hex())
 		packet = cobs.encode(packet) + b'\x00'
 		self._serial.write(packet)
 
@@ -131,7 +128,7 @@ class Programmer:
 			raise Exception('Unterminated packet')
 
 		reply = cobs.decode(reply[0:-1])
-		print('< %s' % reply.hex())
+		#print('< %s' % reply.hex())
 		return reply
 
 	def _read_expected(self, expectedType):
