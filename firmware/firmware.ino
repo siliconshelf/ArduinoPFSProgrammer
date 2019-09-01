@@ -38,9 +38,6 @@ void smpsInit() {
 void smpsOn(uint16_t volts) {
   smpsTarget = volts;
 
-  Serial.print(F("Target: "));
-  Serial.println(volts, HEX);
-  
   cli();
   smpsReachedHigher = false;
   smpsReachedLower = false;
@@ -245,10 +242,11 @@ enum {
   REPLY_OK = 0,
   REPLY_DEVICE_ID,
   REPLY_READ,
-  REPLY_ZERO_LEN_PACKET = 0x80,
-  REPLY_INVALID_LENGTH,
-  REPLY_UNKNOWN_REQUEST,
-  REPLY_INVALID_MODE
+  REPLY_UNKNOWN_REQUEST = 0x80,
+  REPLY_INVALID_REQUEST_LENGTH,
+  REPLY_INVALID_REQUESTED_MODE,
+  REPLY_INVALID_CURRENT_MODE,
+  REPLY_CHUNK_TOO_LARGE,
 };
 
 struct reply_device_id {
@@ -271,69 +269,90 @@ PacketSerial packetSerial;
 uint8_t currentMode = MODE_OFF;
 
 void onPacketReceived(const uint8_t * packet, size_t len) {
-  struct reply reply;
-
-  if (len < 1) {
-    reply.type = REPLY_ZERO_LEN_PACKET;
-    packetSerial.send((uint8_t *) &reply, 1);
+  if (len == 0) {
     return;
   }
 
   const struct request * request = (const struct request *) packet;
+  struct reply reply;
 
-  if (request->type == REQUEST_MODE) {
-    if (len != 1 + sizeof(struct request_mode)) {
-      reply.type = REPLY_INVALID_LENGTH;
-      packetSerial.send((uint8_t *) &reply, 1);
-      return;
-    }
-
-    if (currentMode != MODE_OFF) {
-      padauk_finish();
-      currentMode = MODE_OFF;
-    }
-
-    reply.device_id.device_id = 0x000;
-    switch (request->mode.mode) {
-      case MODE_OFF:
-        break;
-
-      case MODE_READ:
-        reply.device_id.device_id = padauk_start(0x06);
-        break;
-
-      case MODE_WRITE:
-        reply.device_id.device_id = padauk_start(0x07);
-        break;
-
-      case MODE_ERASE:
-        reply.device_id.device_id = padauk_start(0x03);
-        break;
-
-      default:
-        reply.type = REPLY_INVALID_MODE;
+  switch (request->type) {
+    case REQUEST_MODE:
+      if (len != 1 + sizeof(struct request_mode)) {
+        reply.type = REPLY_INVALID_REQUEST_LENGTH;
         packetSerial.send((uint8_t *) &reply, 1);
         return;
-    }
+      }
+  
+      if (currentMode != MODE_OFF) {
+        padauk_finish();
+        currentMode = MODE_OFF;
+      }
+  
+      reply.device_id.device_id = 0x000;
+      switch (request->mode.mode) {
+        case MODE_OFF:
+          break;
+  
+        case MODE_READ:
+          reply.device_id.device_id = padauk_start(0x06);
+          break;
+  
+        case MODE_WRITE:
+          reply.device_id.device_id = padauk_start(0x07);
+          break;
+  
+        case MODE_ERASE:
+          reply.device_id.device_id = padauk_start(0x03);
+          break;
+  
+        default:
+          reply.type = REPLY_INVALID_REQUESTED_MODE;
+          packetSerial.send((uint8_t *) &reply, 1);
+          return;
+      }
+  
+      if (reply.device_id.device_id != 0x000) {
+        currentMode = request->mode.mode;
+      }
+  
+      reply.type = REPLY_DEVICE_ID;
+      packetSerial.send((uint8_t *) &reply, 1 + sizeof(reply_device_id));
+      return;
 
-    if (reply.device_id.device_id != 0x000) {
-      currentMode = request->mode.mode;
-    }
+    case REQUEST_READ:
+      if (len != 1 + sizeof(struct request_read)) {
+        reply.type = REPLY_INVALID_REQUEST_LENGTH;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+      }
 
-    reply.type = REPLY_DEVICE_ID;
-    packetSerial.send((uint8_t *) &reply, 1 + sizeof(reply_device_id));
-    return;
+      if (currentMode != MODE_READ) {
+        reply.type = REPLY_INVALID_CURRENT_MODE;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+      }
+
+      if (request->read.len > sizeof(reply.read.data)) {
+        reply.type = REPLY_CHUNK_TOO_LARGE;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+      }
+
+      reply.type = REPLY_READ;
+      for (uint8_t i = 0; i < request->read.len; i++) {
+        reply.read.data[i] = padauk_flash_read(request->read.address + i);
+      }
+      packetSerial.send((uint8_t *) &reply, 1 + request->read.len * sizeof(uint16_t));
+      return;
   }
+
+  reply.type = REPLY_UNKNOWN_REQUEST;
+  packetSerial.send((uint8_t *) &reply, 1);
 }
 
 void setup() {
-  uint16_t ack = 0;
-  
-  // put your setup code here, to run once:
-  pinMode(11, OUTPUT);
-
   padauk_init();
-
   packetSerial.begin(115200);
   packetSerial.setPacketHandler(&onPacketReceived);
 }
