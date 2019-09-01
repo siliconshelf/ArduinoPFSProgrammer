@@ -1,4 +1,6 @@
 
+#include <PacketSerial.h>
+
 // SMPS clock output pin
 #define SMPS_PORT PORTD
 #define SMPS_BIT 3
@@ -18,8 +20,6 @@ volatile boolean smpsReachedHigher;
 #define SMPS_DIV_R1 680.0
 #define SMPS_DIV_R2 100.0
 #define SMPS_ADC_VAL(v) ((uint8_t) ((255 * v * SMPS_DIV_R2) / (1.1 * (SMPS_DIV_R2 + SMPS_DIV_R1))))
-#define SMPS_PROG_VOLTS SMPS_ADC_VAL(6)
-#define SMPS_ERASE_VOLTS SMPS_ADC_VAL(6.5)
 
 #define BASEDELAY 1
 
@@ -69,6 +69,20 @@ void smpsOff() {
 #define VDDSMPS_EN 2
 #define PROG_DATA 5
 #define PROG_CLOCK 6
+#define PROG_VOLTS SMPS_ADC_VAL(6)
+#define ERASE_VOLTS SMPS_ADC_VAL(6.5)
+
+void padauk_init() {
+  pinMode(VDD33_EN, OUTPUT);
+  digitalWrite(VDD33_EN, HIGH);
+  
+  pinMode(SMPS_PIN, OUTPUT);
+  pinMode(VDDSMPS_EN, OUTPUT);
+  pinMode(PROG_DATA, OUTPUT);
+  pinMode(PROG_CLOCK, OUTPUT);
+
+  smpsInit();
+}
 
 void padauk_spi_clock() {
   digitalWrite(PROG_CLOCK, HIGH);
@@ -120,20 +134,6 @@ uint16_t padauk_spi_read(uint8_t bits) {
   return data;
 }
 
-void padauk_begin(uint8_t volts) {
-  smpsOn(volts);
-  delayMicroseconds(100);
-
-  digitalWrite(VDD33_EN, LOW);
-  delayMicroseconds(500);
-}
-
-void padauk_finish() {
-  digitalWrite(VDD33_EN, HIGH);
-  digitalWrite(VDDSMPS_EN, LOW);
-  smpsOff();
-}
-
 uint16_t padauk_command(uint8_t cmd) {
   padauk_spi_write( 0xA5A, 12);
   padauk_spi_write(0x5A5A, 16);
@@ -151,6 +151,22 @@ uint16_t padauk_command(uint8_t cmd) {
   padauk_spi_clock();
   padauk_spi_output();
   return ack;
+}
+
+uint16_t padauk_start(uint8_t cmd) {
+  smpsOn(PROG_VOLTS);
+  delayMicroseconds(100);
+
+  digitalWrite(VDD33_EN, LOW);
+  delayMicroseconds(500);
+
+  return padauk_command(cmd);
+}
+
+void padauk_finish() {
+  digitalWrite(VDD33_EN, HIGH);
+  digitalWrite(VDDSMPS_EN, LOW);
+  smpsOff();
 }
 
 uint16_t padauk_flash_read(uint16_t addr) {
@@ -171,33 +187,8 @@ void padauk_flash_write(uint16_t addr, const uint16_t * data) {
   padauk_spi_write(0, 9);
 }
 
-void setup() {
-  uint16_t ack = 0;
-  
-  // put your setup code here, to run once:
-  pinMode(11, OUTPUT);
-
-  pinMode(VDD33_EN, OUTPUT);
-  digitalWrite(VDD33_EN, HIGH);
-  
-  pinMode(SMPS_PIN, OUTPUT);
-  pinMode(VDDSMPS_EN, OUTPUT);
-  pinMode(PROG_DATA, OUTPUT);
-  pinMode(PROG_CLOCK, OUTPUT);
-  
-  cli();
-  smpsInit();
-  sei();
-
-  Serial.begin(115200);
-
-#if 0
-  // ERASE TEST
-  padauk_begin(SMPS_PROG_VOLTS);
-  ack = padauk_command(3);
-  Serial.println(ack, HEX);
-  
-  padauk_begin(SMPS_ERASE_VOLTS);
+void padauk_erase() {
+  smpsOn(ERASE_VOLTS);
   delayMicroseconds(10000);
   digitalWrite(PROG_CLOCK, HIGH);
   delayMicroseconds(5000);
@@ -211,67 +202,144 @@ void setup() {
   digitalWrite(PROG_CLOCK, LOW);
   delayMicroseconds(150);
   padauk_finish();
+}
 
-  delay(100);
-#endif
+enum {
+  REQUEST_MODE = 0,
+  REQUEST_READ,
+  REQUEST_WRITE,
+  REQUEST_ERASE,
+};
 
-  // WRITE TEST
-#if 0
-  padauk_begin(SMPS_PROG_VOLTS);
-  ack = padauk_command(7);
-  //smpsOn(SMPS_83V);
+enum {
+  MODE_OFF = 0,
+  MODE_READ,
+  MODE_WRITE,
+  MODE_ERASE,
+};
 
-  pinMode(VDD33_EN, INPUT);
-  pinMode(VDDSMPS_EN, OUTPUT);
-  digitalWrite(VDDSMPS_EN, LOW);
-  
-  Serial.println(ack, HEX);
-  for (uint16_t addr = 0; addr < 2048; addr += 4) {
-    uint16_t words[4] = {0x0000 + addr, addr + 1, addr + 2, addr + 3};
-    padauk_flash_write(addr, words);
+struct request_mode {
+  uint8_t mode;
+};
+
+struct request_read {
+  uint16_t address;
+  uint8_t len;
+};
+
+struct request_write {
+  uint16_t address;
+  uint16_t data[64];
+};
+
+struct request {
+  uint8_t type;
+  union {
+    struct request_mode mode;
+    struct request_read read;
+    struct request_write write;
+  };
+};
+
+enum {
+  REPLY_OK = 0,
+  REPLY_DEVICE_ID,
+  REPLY_READ,
+  REPLY_ZERO_LEN_PACKET = 0x80,
+  REPLY_INVALID_LENGTH,
+  REPLY_UNKNOWN_REQUEST,
+  REPLY_INVALID_MODE
+};
+
+struct reply_device_id {
+  uint16_t device_id;
+};
+
+struct reply_read {
+  uint16_t data[64];
+};
+
+struct reply {
+  uint8_t type;
+  union {
+    struct reply_device_id device_id;
+    struct reply_read read;
+  };
+};
+
+PacketSerial packetSerial;
+uint8_t currentMode = MODE_OFF;
+
+void onPacketReceived(const uint8_t * packet, size_t len) {
+  struct reply reply;
+
+  if (len < 1) {
+    reply.type = REPLY_ZERO_LEN_PACKET;
+    packetSerial.send((uint8_t *) &reply, 1);
+    return;
   }
-  
-  pinMode(VDDSMPS_EN, INPUT);
-  padauk_finish();
 
-  delay(100);
-#endif
+  const struct request * request = (const struct request *) packet;
 
-
-  // READ TEST
-  padauk_begin(SMPS_PROG_VOLTS);
-  ack = padauk_command(6);
-
-#define SERIALLOG
-
-#ifdef SERIALLOG
-  Serial.println(ack, HEX);
-#endif
-
-#if 1
-  for (uint16_t addr = 0; addr < 2048; addr++) {
-    uint16_t data = padauk_flash_read(addr);
-    if (data < 0x1000) {
-      Serial.print('0');
-      if (data < 0x100) {
-        Serial.print('0');
-        if (data < 0x10) {
-          Serial.print('0');
-        }
-      }
+  if (request->type == REQUEST_MODE) {
+    if (len != 1 + sizeof(struct request_mode)) {
+      reply.type = REPLY_INVALID_LENGTH;
+      packetSerial.send((uint8_t *) &reply, 1);
+      return;
     }
-    Serial.print(data, HEX);
-    if ((addr & 15) == 15) {
-      Serial.println();
-    } else {
-      Serial.print(' ');
+
+    if (currentMode != MODE_OFF) {
+      padauk_finish();
+      currentMode = MODE_OFF;
     }
+
+    reply.device_id.device_id = 0x000;
+    switch (request->mode.mode) {
+      case MODE_OFF:
+        break;
+
+      case MODE_READ:
+        reply.device_id.device_id = padauk_start(0x06);
+        break;
+
+      case MODE_WRITE:
+        reply.device_id.device_id = padauk_start(0x07);
+        break;
+
+      case MODE_ERASE:
+        reply.device_id.device_id = padauk_start(0x03);
+        break;
+
+      default:
+        reply.type = REPLY_INVALID_MODE;
+        packetSerial.send((uint8_t *) &reply, 1);
+        return;
+    }
+
+    if (reply.device_id.device_id != 0x000) {
+      currentMode = request->mode.mode;
+    }
+
+    reply.type = REPLY_DEVICE_ID;
+    packetSerial.send((uint8_t *) &reply, 1 + sizeof(reply_device_id));
+    return;
   }
-#endif
-  padauk_finish();
+}
+
+void setup() {
+  uint16_t ack = 0;
+  
+  // put your setup code here, to run once:
+  pinMode(11, OUTPUT);
+
+  padauk_init();
+
+  packetSerial.begin(115200);
+  packetSerial.setPacketHandler(&onPacketReceived);
 }
 
 void loop() {
+  packetSerial.update();
 }
 
 ISR(ADC_vect) {
