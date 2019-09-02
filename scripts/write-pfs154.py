@@ -17,17 +17,25 @@ ih = IntelHex16bit(args.hex)
 with Programmer(args.com) as p:
 	try:
 		p.start_write()
-		for start, size in ih.segments():
-			print('Writing %04X-%04X... ' % (start, start + size - 1), end='')
-			wordarray = ih.tobinarray(start=start, size=size)
+		for start, end in ih.segments():
+			# Convert to words
+			start = start // 2
+			end = end // 2
+
+			print('Writing %04X-%04X... ' % (start, end), end='')
+			wordarray = ih.tobinarray(start=start, end=end)
 			p.write(start, wordarray)
 			print('done')
 		if not args.no_verify:
 			p.start_read()
-			for start, size in ih.segments():
-				print('Verifying %04X-%04X... ' % (start, start + size - 1), end='')
-				expected = ih.tobinarray(start=start, size=size)
-				read = p.read(start, size)
+			for start, end in ih.segments():
+				# Convert to words
+				start = start // 2
+				end = end // 2
+
+				print('Verifying %04X-%04X... ' % (start, end), end='')
+				expected = ih.tobinarray(start=start, end=end)
+				read = p.read(start, end - start + 1)
 				failed = False
 				for i in range(0, len(expected)):
 					if (expected[i] and 0x3FFF) != (read[i] and 0x3FFF):
