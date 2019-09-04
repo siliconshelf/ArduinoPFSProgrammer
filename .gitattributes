@@ -10,6 +10,7 @@
 *.ino text diff=cpp
 *.java text diff=java
 *.js text
+*.json text
 *.properties text
 *.py text diff=python
 *.sh text
