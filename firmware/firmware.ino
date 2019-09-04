@@ -243,6 +243,7 @@ enum {
   REPLY_DEVICE_ID,
   REPLY_READ,
   REPLY_UNKNOWN_REQUEST = 0x80,
+  REPLY_NO_CHIP,
   REPLY_INVALID_REQUEST_LENGTH,
   REPLY_INVALID_REQUESTED_MODE,
   REPLY_INVALID_CURRENT_MODE,
@@ -292,7 +293,9 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
       reply.device_id.device_id = 0x000;
       switch (request->mode.mode) {
         case MODE_OFF:
-          break;
+          reply.type = REPLY_OK;
+          packetSerial.send((uint8_t *) &reply, 1);
+          return;
   
         case MODE_READ:
           reply.device_id.device_id = padauk_start(0x06);
@@ -312,12 +315,13 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
           return;
       }
   
-      if (reply.device_id.device_id != 0x000) {
-        currentMode = request->mode.mode;
-      } else {
+      if (reply.device_id.device_id == 0x000) {
         padauk_finish();
+        reply.type = REPLY_NO_CHIP;
+        packetSerial.send((uint8_t *) &reply, 1);
       }
   
+      currentMode = request->mode.mode;
       reply.type = REPLY_DEVICE_ID;
       packetSerial.send((uint8_t *) &reply, 1 + sizeof(reply_device_id));
       return;
