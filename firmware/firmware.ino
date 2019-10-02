@@ -164,6 +164,7 @@ void padauk_finish() {
   digitalWrite(VDD33_EN, HIGH);
   digitalWrite(VDDSMPS_EN, LOW);
   smpsOff();
+  delay(100);
 }
 
 uint16_t padauk_flash_read(uint16_t addr) {
@@ -268,6 +269,7 @@ struct reply {
 
 PacketSerial packetSerial;
 uint8_t currentMode = MODE_OFF;
+bool setupWrite;
 
 void onPacketReceived(const uint8_t * packet, size_t len) {
   if (len == 0) {
@@ -303,6 +305,7 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
   
         case MODE_WRITE:
           reply.device_id.device_id = padauk_start(0x07);
+          setupWrite = false;
           break;
   
         case MODE_ERASE:
@@ -361,8 +364,12 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
         return;
       }
 
-      digitalWrite(VDD33_EN, HIGH);
-      digitalWrite(VDDSMPS_EN, HIGH);
+      if (!setupWrite) {
+        digitalWrite(VDD33_EN, HIGH);
+        digitalWrite(VDDSMPS_EN, HIGH);
+        delay(100);
+        setupWrite = true;
+      }
 
       uint8_t words = payloadLen / sizeof(uint16_t);
       uint8_t pos = 0;
