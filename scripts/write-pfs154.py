@@ -38,7 +38,7 @@ with Programmer(args.com) as p:
 				read = p.read(start, end - start + 1)
 				failed = False
 				for i in range(0, len(expected)):
-					if (expected[i] and 0x3FFF) != (read[i] and 0x3FFF):
+					if (expected[i] & 0x3FFF) != (read[i] & 0x3FFF):
 						if not failed:
 							print('FAILED')
 							failed = True
