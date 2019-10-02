@@ -66,7 +66,7 @@ This packet is employed to change the programmer mode between the several suppor
 - `REPLY_NO_CHIP`: the mode is not off, and the microcontroller was not detected. The programmer is now in off mode.
 - `REPLY_INVALID_REQUESTED_MODE`: the mode does not exist. The programmer is now in off mode.
 
-#### `REQUEST_MODE` (id: `0x01`)
+#### `REQUEST_READ` (id: `0x01`)
 
 This packet is employed to read up to 64 words of data from the microcontroller's non-volatile flash memory. The programmer must have been previously put in read mode.
 
