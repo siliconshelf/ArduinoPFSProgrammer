@@ -57,10 +57,12 @@ class Programmer:
 	def start_mode(self, mode):
 		self._write_packet(RequestId.MODE, 'B', mode.value)
 
-		devId, = self._read_struct(ReplyId.DEVICE_ID, 'H')
-		if mode != ProtoModes.OFF and devId != 0xAA1:
-			self._mode = ProtoModes.OFF
-			raise Exception("Unsupported device ID: %06X" % devId)
+		if mode == ProtoModes.OFF:
+			self._read_struct(ReplyId.OK)
+		else:
+			devId, = self._read_struct(ReplyId.DEVICE_ID, 'H')
+			if devId != 0xAA1:
+				raise Exception("Unsupported device ID: %06X" % devId)
 
 		self._mode = mode
 
