@@ -20,7 +20,7 @@ with Programmer(args.com) as p:
 		for start, end in ih.segments():
 			# Convert to words
 			start = start // 2
-			end = end // 2
+			end = end // 2 - 1
 
 			print('Writing %04X-%04X... ' % (start, end), end='')
 			wordarray = ih.tobinarray(start=start, end=end)
@@ -31,7 +31,7 @@ with Programmer(args.com) as p:
 			for start, end in ih.segments():
 				# Convert to words
 				start = start // 2
-				end = end // 2
+				end = end // 2 - 1
 
 				print('Verifying %04X-%04X... ' % (start, end), end='')
 				expected = ih.tobinarray(start=start, end=end)
