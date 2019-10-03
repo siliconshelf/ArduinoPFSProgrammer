@@ -67,7 +67,7 @@ void smpsOff() {
 #define VDDSMPS_EN 2
 #define PROG_DATA 5
 #define PROG_CLOCK 6
-#define PROG_VOLTS SMPS_ADC_VAL(6.5)
+#define PROG_VOLTS SMPS_ADC_VAL(5.8)
 #define ERASE_VOLTS SMPS_ADC_VAL(8)
 
 void padauk_init() {
