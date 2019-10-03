@@ -21,7 +21,8 @@ volatile boolean smpsReachedHigher;
 #define SMPS_DIV_R2 100.0
 #define SMPS_ADC_VAL(v) ((uint8_t) ((255 * v * SMPS_DIV_R2) / (1.1 * (SMPS_DIV_R2 + SMPS_DIV_R1))))
 
-#define BASEDELAY 3
+#define BASEDELAY 5
+#define SLOWBASEDELAY 100
 
 void smpsInit() {
   // - Set channel to ADC0 (MUX[3:0] = 0000)
@@ -131,6 +132,22 @@ uint16_t padauk_spi_read(uint8_t bits) {
   return data;
 }
 
+void padauk_spi_write_bit_slow(int bit) {
+  digitalWrite(PROG_DATA, bit ? HIGH : LOW);
+  delayMicroseconds(BASEDELAY);
+  digitalWrite(PROG_CLOCK, HIGH);
+  delayMicroseconds(SLOWBASEDELAY);
+  digitalWrite(PROG_CLOCK, LOW);
+  delayMicroseconds(SLOWBASEDELAY);
+}
+
+void padauk_spi_write_slow(uint16_t data, uint8_t bits) {
+  do {
+    bits--;
+    padauk_spi_write_bit_slow(data & (1 << bits));
+  } while (bits > 0);
+}
+
 uint16_t padauk_command(uint8_t cmd) {
   padauk_spi_write( 0xA5A, 12);
   padauk_spi_write(0x5A5A, 16);
@@ -177,12 +194,12 @@ uint16_t padauk_flash_read(uint16_t addr) {
 }
 
 void padauk_flash_write(uint16_t addr, const uint16_t * data) {
-  padauk_spi_write(data[0], 14);
-  padauk_spi_write(data[1], 14);
-  padauk_spi_write(data[2], 14);
-  padauk_spi_write(data[3], 14);
-  padauk_spi_write(addr, 13);
-  padauk_spi_write(0, 9);
+  padauk_spi_write_slow(data[0], 14);
+  padauk_spi_write_slow(data[1], 14);
+  padauk_spi_write_slow(data[2], 14);
+  padauk_spi_write_slow(data[3], 14);
+  padauk_spi_write_slow(addr, 13);
+  padauk_spi_write_slow(0, 9);
 }
 
 void padauk_erase() {
