@@ -104,6 +104,7 @@ class Programmer:
 			self._read_struct(ReplyId.OK)
 
 			bytes = bytes[iterlen:]
+			offset += iterlen // 2
 
 	def erase(self):
 		self.start_mode(ProtoModes.ERASE)
