@@ -22,7 +22,7 @@ volatile boolean smpsReachedHigher;
 #define SMPS_ADC_VAL(v) ((uint8_t) ((255 * v * SMPS_DIV_R2) / (1.1 * (SMPS_DIV_R2 + SMPS_DIV_R1))))
 
 #define BASEDELAY 5
-#define SLOWBASEDELAY 100
+#define SLOWBASEDELAY 150
 
 void smpsInit() {
   // - Set channel to ADC0 (MUX[3:0] = 0000)
@@ -67,7 +67,7 @@ void smpsOff() {
 #define VDDSMPS_EN 2
 #define PROG_DATA 5
 #define PROG_CLOCK 6
-#define PROG_VOLTS SMPS_ADC_VAL(5.8)
+#define PROG_VOLTS SMPS_ADC_VAL(6)
 #define ERASE_VOLTS SMPS_ADC_VAL(8)
 
 void padauk_init() {

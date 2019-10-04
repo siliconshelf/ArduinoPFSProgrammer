@@ -96,6 +96,9 @@ class Programmer:
 		if self._mode != ProtoModes.WRITE:
 			raise Exception("Not in write mode")
 
+		if not isinstance(words, array.array):
+			words = array.array('H', words)
+
 		bytes = words.tobytes()
 		while len(bytes) > 0:
 			iterlen = min(len(bytes), Programmer.MAX_WORDS * 2)
@@ -121,7 +124,7 @@ class Programmer:
 		packet = cobs.encode(packet) + b'\x00'
 		self._serial.write(packet)
 
-	def _read_packet(self, timeout=0.5):
+	def _read_packet(self, timeout=1):
 		self._serial.timeout = timeout
 		reply = self._serial.read_until(b'\x00')
 		if len(reply) == 0:
