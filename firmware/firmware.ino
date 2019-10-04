@@ -390,6 +390,21 @@ void onPacketReceived(const uint8_t * packet, size_t len) {
 
       uint8_t words = payloadLen / sizeof(uint16_t);
       uint8_t pos = 0;
+
+      // Pad start to a power of 4
+      uint8_t unalignedWords = request->write.address & 3;
+      if (unalignedWords != 0) {
+        uint16_t alignedAddr = request->write.address & 0xFFFC;
+        uint8_t wordsToCopy = min(4 - unalignedWords, words);
+
+        uint16_t tmp[4] = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
+        memcpy(&tmp[unalignedWords], request->write.data, wordsToCopy * sizeof(uint16_t));
+        padauk_flash_write(alignedAddr, tmp);
+
+        pos += wordsToCopy;
+        words -= wordsToCopy;
+      }
+
       while (words >= 4) {
         padauk_flash_write(request->write.address + pos, request->write.data + pos);
         pos += 4;
